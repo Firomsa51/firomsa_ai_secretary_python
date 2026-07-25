@@ -11,9 +11,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine, Base, AsyncSessionLocal
 from app.api import router as api_router
 from app.telegram.client import telegram_client
+from app.telegram.session_store import load_session_string
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +23,28 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application startup and shutdown lifecycle."""
     # ── Startup ───────────────────────────────────────────────────────────────
-    logger.info("Starting Firomsa AI Secretary…")
+    logger.info("Starting Firomsa AI Secretary...")
 
-    # Create database tables (use Alembic in production)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables verified.")
 
-    # Initialise Telegram client (does not log in automatically)
-    await telegram_client.initialise()
-    logger.info("Telegram client ready (not connected — awaiting credentials).")
+    # Load any previously-persisted Telegram session from the database so
+    # the client reconnects automatically after a restart, instead of
+    # only ever checking the TELEGRAM_SESSION env var (the Phase 1 bug).
+    async with AsyncSessionLocal() as db:
+        db_session_string = await load_session_string(db)
+
+    await telegram_client.initialise(db_session_string=db_session_string)
+    if db_session_string:
+        logger.info("Telegram client initialised with session restored from database.")
+    else:
+        logger.info("Telegram client ready (not connected — awaiting credentials).")
 
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
-    logger.info("Shutting down Firomsa AI Secretary…")
+    logger.info("Shutting down Firomsa AI Secretary...")
     await telegram_client.disconnect()
     await engine.dispose()
     logger.info("Shutdown complete.")
@@ -50,11 +58,10 @@ def create_app() -> FastAPI:
             "A personal AI secretary that connects to your Telegram account "
             "via MTProto, manages your inbox, and assists with professional communication."
         ),
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
 
-    # ── CORS ──────────────────────────────────────────────────────────────────
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -63,9 +70,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ── Routes ────────────────────────────────────────────────────────────────
     app.include_router(api_router)
-
     return app
 
 
