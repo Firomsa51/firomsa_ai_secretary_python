@@ -1,0 +1,61 @@
+version: "1"
+
+# ── Firomsa AI Secretary — Render Blueprint ───────────────────────────────────
+# Deploy with: render blueprint launch
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ── API / Worker service ───────────────────────────────────────────────────
+  - type: web
+    name: firomsa-ai-secretary
+    runtime: python
+    region: oregon
+    plan: starter               # upgrade to "standard" for production
+
+    rootDir: firomsa-ai-secretary/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      # ── Server ──────────────────────────────────────────────────────────────
+      - key: PORT
+        value: "10000"          # Render assigns this automatically; kept for clarity
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+
+      # ── Security ────────────────────────────────────────────────────────────
+      - key: SECRET_KEY
+        generateValue: true     # Render auto-generates a random value on first deploy
+
+      # ── Database — filled manually in the Render dashboard ──────────────────
+      - key: DATABASE_URL
+        sync: false             # prompt user to enter value
+
+      # ── Telegram ────────────────────────────────────────────────────────────
+      - key: TELEGRAM_API_ID
+        sync: false
+      - key: TELEGRAM_API_HASH
+        sync: false
+      - key: TELEGRAM_PHONE
+        sync: false
+      - key: TELEGRAM_SESSION
+        sync: false             # populate after first successful auth
+
+      # ── AI Provider ─────────────────────────────────────────────────────────
+      - key: AI_PROVIDER
+        value: openai           # change to "groq" if preferred
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+
+  # ── Managed PostgreSQL database ────────────────────────────────────────────
+  - type: pserv
+    name: firomsa-db
+    plan: starter
+    databaseName: firomsa
+    databaseUser: firomsa

@@ -1,0 +1,30 @@
+# ── Web framework ──────────────────────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# ── Database ───────────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# ── Validation & settings ──────────────────────────────────────────────────────
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# ── Telegram MTProto ───────────────────────────────────────────────────────────
+telethon==1.37.0
+cryptg==0.4.0          # optional C extension that speeds up Telethon encryption
+
+# ── AI providers ───────────────────────────────────────────────────────────────
+openai==1.57.0         # used for both OpenAI and Groq (OpenAI-compatible SDK)
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+httpx==0.28.1          # async HTTP client (also a transitive dep of openai)
+
+# ── Dev / testing (not installed in production) ───────────────────────────────
+# pytest==8.3.4
+# pytest-asyncio==0.24.0
+# httpx==0.28.1        # already listed above
+# ruff==0.8.4
+# mypy==1.13.0
