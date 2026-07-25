@@ -1,53 +1,275 @@
 """
-Telethon event handlers — wired up after a successful authorisation.
+Telethon event handlers — Phase 2 full pipeline.
 
-Each handler is a placeholder that will be expanded in Phase 2 when the
-AI layer is integrated. For now they log incoming events and return early.
+Incoming private message -> identify sender -> persist User/Conversation/Message
+-> (if enabled) run AI agent -> persist category/priority + draft_reply.
+
+Explicitly ignored: groups, channels, bots, and service messages (see
+`_should_process`). No message is ever sent automatically in this phase --
+even in "autonomous" mode, which is reserved for Phase 4.
 """
 
-import logging
+from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from telethon import TelegramClient, events
-from telethon.tl.types import Message
+from telethon.tl.types import Message as TelethonMessage, User as TelethonUser
+
+from app.ai.agent import AgentResult, ConversationContext, FiromsaAgent
+from app.ai.memory import MemoryService
+from app.ai.providers import get_ai_provider
+from app.database import AsyncSessionLocal
+from app.models.conversation import Conversation
+from app.models.message import Message
+from app.models.user import User
+from app.services.settings_service import get_assistant_mode
 
 logger = logging.getLogger(__name__)
 
+# Assistant mode values (mirrors Settings.assistant_mode as already defined
+# on the model). Spec-level names OFF / ASSIST / AUTO map onto these.
+MODE_OFF = "passive"        # OFF     — store only, no AI
+MODE_ASSIST = "suggestive"  # ASSIST  — generate draft replies (default)
+MODE_AUTO = "autonomous"    # AUTO    — reserved for Phase 4, never sends yet
+
 
 def register_handlers(client: TelegramClient) -> None:
-    """
-    Register all Telegram event handlers on the given client.
-    Called once the client confirms it is authorised.
-    """
-    logger.info("Registering Telegram event handlers…")
+    """Register all Telegram event handlers on the given client."""
+    logger.info("Registering Telegram event handlers...")
 
     @client.on(events.NewMessage(incoming=True))
     async def on_new_message(event: events.NewMessage.Event) -> None:
-        """
-        Fires whenever a new incoming message arrives in any chat.
-
-        Phase 1: log the event.
-        Phase 2: persist to DB + route through AI agent.
-        """
-        msg: Message = event.message
-        sender = await event.get_sender()
-        logger.info(
-            "New message from %s (id=%s): %.120s",
-            getattr(sender, "username", None) or getattr(sender, "first_name", "unknown"),
-            getattr(sender, "id", "?"),
-            msg.text or "<non-text>",
-        )
-        # TODO Phase 2: persist message → run AI agent → optionally auto-reply
+        await _handle_incoming_message(event)
 
     @client.on(events.MessageEdited(incoming=True))
     async def on_message_edited(event: events.MessageEdited.Event) -> None:
-        """Fires when an incoming message is edited."""
         logger.debug("Message edited: id=%s", event.message.id)
-        # TODO Phase 2: update stored message content
+        # TODO Phase 3: update stored message content / re-run agent if needed
 
     @client.on(events.MessageRead)
     async def on_message_read(event: events.MessageRead.Event) -> None:
-        """Fires when messages are marked as read."""
         logger.debug("Messages read up to id=%s in peer=%s", event.max_id, event.peer)
-        # TODO Phase 2: update read-status in DB
+        # TODO Phase 3: update read-status in DB
 
     logger.info("Telegram event handlers registered.")
+
+
+async def _handle_incoming_message(event: events.NewMessage.Event) -> None:
+    """Full Phase 2 pipeline for a single incoming Telegram message."""
+    msg: TelethonMessage = event.message
+
+    if not await _should_process(event, msg):
+        return
+
+    sender = await event.get_sender()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            user = await _get_or_create_user(db, sender)
+            conversation = await _get_or_create_conversation(db, user)
+
+            message = await _store_message(db, conversation, msg)
+            if message is None:
+                # Duplicate delivery of a Telegram message we've already stored.
+                await db.commit()
+                return
+
+            await db.commit()
+            await db.refresh(conversation)
+            await db.refresh(message)
+
+            mode = await get_assistant_mode(db)
+            logger.info(
+                "Processing message id=%s in mode=%r for user_id=%s",
+                message.id, mode, user.id,
+            )
+
+            if mode == MODE_OFF:
+                logger.info("Assistant mode is OFF - message stored only.")
+                return
+
+            await _run_agent_and_save(db, conversation, message, user, sender)
+
+            if mode == MODE_AUTO:
+                logger.info(
+                    "Mode is 'autonomous' - auto-send is reserved for Phase 4; "
+                    "draft was generated but NOT sent."
+                )
+
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to process incoming Telegram message id=%s", msg.id)
+
+
+async def _should_process(event: events.NewMessage.Event, msg: TelethonMessage) -> bool:
+    """
+    Filter to private, non-bot, non-service incoming messages only.
+    Groups, channels, and bot senders are explicitly ignored.
+    """
+    if not event.is_private:
+        logger.debug("Ignoring non-private message id=%s.", msg.id)
+        return False
+
+    if msg.action is not None:
+        logger.debug("Ignoring service message id=%s.", msg.id)
+        return False
+
+    sender = await event.get_sender()
+    if sender is None:
+        logger.debug("Ignoring message id=%s with unresolved sender.", msg.id)
+        return False
+
+    if getattr(sender, "bot", False):
+        logger.debug("Ignoring message id=%s from bot sender.", msg.id)
+        return False
+
+    if not isinstance(sender, TelethonUser):
+        logger.debug("Ignoring message id=%s from non-user sender.", msg.id)
+        return False
+
+    if not (msg.text or msg.message):
+        logger.debug("Ignoring non-text message id=%s.", msg.id)
+        return False
+
+    return True
+
+
+async def _get_or_create_user(db: AsyncSession, sender: TelethonUser) -> User:
+    user = await db.scalar(select(User).where(User.telegram_id == sender.id))
+    if user is not None:
+        changed = False
+        if user.username != sender.username:
+            user.username = sender.username
+            changed = True
+        if sender.first_name and user.first_name != sender.first_name:
+            user.first_name = sender.first_name
+            changed = True
+        if user.last_name != sender.last_name:
+            user.last_name = sender.last_name
+            changed = True
+        if changed:
+            await db.flush()
+        return user
+
+    user = User(
+        telegram_id=sender.id,
+        username=sender.username,
+        first_name=sender.first_name or "Unknown",
+        last_name=sender.last_name,
+    )
+    db.add(user)
+    await db.flush()
+    logger.info("Created new User telegram_id=%s username=%s", sender.id, sender.username)
+    return user
+
+
+async def _get_or_create_conversation(db: AsyncSession, user: User) -> Conversation:
+    """
+    Return the user's open conversation, creating one if none exists.
+    Conversations are never auto-closed in Phase 2 -- closing is a future
+    (Phase 3+) concern, so every user has at most one open conversation.
+    """
+    conversation = await db.scalar(
+        select(Conversation)
+        .where(Conversation.user_id == user.id, Conversation.status == "open")
+        .order_by(Conversation.last_message_at.desc())
+    )
+    if conversation is not None:
+        return conversation
+
+    conversation = Conversation(user_id=user.id, status="open")
+    db.add(conversation)
+    await db.flush()
+    logger.info("Opened new Conversation id=%s for user_id=%s", conversation.id, user.id)
+    return conversation
+
+
+async def _store_message(
+    db: AsyncSession, conversation: Conversation, msg: TelethonMessage
+) -> Message | None:
+    """Persist the incoming message. Returns None if it's a duplicate."""
+    existing = await db.scalar(
+        select(Message).where(
+            Message.conversation_id == conversation.id,
+            Message.telegram_message_id == msg.id,
+        )
+    )
+    if existing is not None:
+        logger.info(
+            "Duplicate Telegram message id=%s already stored as Message id=%s - skipping.",
+            msg.id, existing.id,
+        )
+        return None
+
+    content = msg.text or msg.message or ""
+    message = Message(
+        conversation_id=conversation.id,
+        sender="contact",
+        content=content,
+        telegram_message_id=msg.id,
+    )
+    db.add(message)
+    conversation.last_message_at = datetime.now(timezone.utc)
+    await db.flush()
+    logger.info("Stored Message id=%s (conversation_id=%s)", message.id, conversation.id)
+    return message
+
+
+def _build_history(conversation: Conversation, exclude_message_id: int) -> list[dict[str, str]]:
+    """
+    Turn a conversation's prior messages into agent-format history,
+    interleaving stored draft replies as 'ai' turns for continuity.
+    """
+    history: list[dict[str, str]] = []
+    for m in conversation.messages:
+        if m.id == exclude_message_id:
+            continue
+        history.append({"sender": m.sender, "content": m.content})
+        if m.draft_reply:
+            history.append({"sender": "ai", "content": m.draft_reply})
+    return history
+
+
+async def _run_agent_and_save(
+    db: AsyncSession,
+    conversation: Conversation,
+    message: Message,
+    user: User,
+    sender: TelethonUser,
+) -> AgentResult:
+    """Run the AI agent and persist category/priority + draft_reply."""
+    history = _build_history(conversation, exclude_message_id=message.id)
+
+    sender_name = sender.username or sender.first_name or f"user_{user.telegram_id}"
+    ctx = ConversationContext(
+        user_id=user.id,
+        sender_name=sender_name,
+        latest_message=message.content,
+        history=history,
+    )
+
+    agent = FiromsaAgent(provider=get_ai_provider(), memory_service=MemoryService(db))
+
+    try:
+        result = await agent.process(ctx)
+    except Exception:  # noqa: BLE001
+        logger.exception("AI agent processing failed for message id=%s", message.id)
+        return AgentResult(draft_reply=None, category=None, priority=None, summary=None)
+
+    if result.category:
+        conversation.category = result.category
+    if result.priority:
+        conversation.priority = result.priority
+    if result.draft_reply:
+        message.draft_reply = result.draft_reply
+
+    await db.commit()
+    logger.info(
+        "Agent result saved: message_id=%s category=%r priority=%r draft_len=%s",
+        message.id, result.category, result.priority,
+        len(result.draft_reply) if result.draft_reply else 0,
+    )
+    return result
