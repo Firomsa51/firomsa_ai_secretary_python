@@ -39,6 +39,14 @@ class Message(Base):
         nullable=True,
         comment="Original Telegram message ID for deduplication",
     )
+    # ── Phase 2 addition ──────────────────────────────────────────────────────
+    draft_reply: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment=(
+            "AI-generated draft reply for this incoming message. "
+            "Never sent automatically — the original message content is untouched."
+        ),
+    )
     timestamp: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
