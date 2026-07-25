@@ -22,14 +22,15 @@ class Settings(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     # "passive" | "suggestive" | "autonomous"
+    # Spec-level names: OFF | ASSIST | AUTO map onto these respectively.
     assistant_mode: Mapped[str] = mapped_column(
         String(32),
-        default="passive",
+        default="suggestive",
         nullable=False,
         comment=(
-            "passive   — reads and categorises messages, no auto-replies\n"
-            "suggestive — drafts replies for owner approval\n"
-            "autonomous — sends replies automatically"
+            "passive    (OFF)    — reads and categorises messages, no drafts\n"
+            "suggestive (ASSIST) — default; drafts replies for owner approval\n"
+            "autonomous (AUTO)   — reserved for Phase 4; does not send yet"
         ),
     )
     auto_reply_enabled: Mapped[bool] = mapped_column(
@@ -41,8 +42,6 @@ class Settings(Base):
     )
 
     # ── Telegram session (Phase 2) ────────────────────────────────────────────
-    # Stored in the DB so it survives restarts on stateless cloud deployments.
-    # This value is NEVER returned by any public API endpoint.
     telegram_session_string: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
