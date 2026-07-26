@@ -1,7 +1,8 @@
 """
-Telethon event handlers — Phase 2 pipeline, touched up in Phase 3 to set
-draft_status when a draft is generated, and to avoid double-counting
-already-sent drafts when building agent history.
+Telethon event handlers — Phase 2 pipeline; Phase 3 added draft lifecycle;
+Phase 4 wires the autonomous decision engine in for 'autonomous' mode and
+persists the new AI signal fields (confidence/intent/sentiment/reasoning/
+requires_human_review) onto the Message row.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from app.database import AsyncSessionLocal
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
+from app.services import autonomous_service
 from app.services.settings_service import get_assistant_mode
 
 logger = logging.getLogger(__name__)
@@ -83,10 +85,8 @@ async def _handle_incoming_message(event: events.NewMessage.Event) -> None:
             await _run_agent_and_save(db, conversation, message, user, sender)
 
             if mode == MODE_AUTO:
-                logger.info(
-                    "Mode is 'autonomous' - auto-send is reserved for Phase 4; "
-                    "draft was generated but NOT sent. Use the Phase 3 draft "
-                    "approve/send endpoints instead."
+                await autonomous_service.evaluate_and_maybe_autoreply(
+                    db, conversation, message, user
                 )
 
     except Exception:  # noqa: BLE001
@@ -192,12 +192,6 @@ async def _store_message(
 
 
 def _build_history(conversation: Conversation, exclude_message_id: int) -> list[dict[str, str]]:
-    """
-    Pending/approved drafts are synthesized as an 'ai' turn so the agent has
-    continuity even before a draft is sent. Once a draft is actually sent,
-    the real outgoing Message row (sender='ai') already carries that turn,
-    so we don't synthesize it a second time.
-    """
     history: list[dict[str, str]] = []
     for m in conversation.messages:
         if m.id == exclude_message_id:
@@ -244,11 +238,20 @@ async def _run_agent_and_save(
         message.approved_at = None
         message.sent_at = None
         message.approved_by = None
+        message.sent_via = None
+
+    message.ai_confidence = result.confidence
+    message.ai_intent = result.intent
+    message.ai_sentiment = result.sentiment
+    message.ai_reasoning = result.reasoning
+    message.requires_human_review = result.requires_human_review
 
     await db.commit()
     logger.info(
-        "Agent result saved: message_id=%s category=%r priority=%r draft_len=%s",
-        message.id, result.category, result.priority,
+        "Agent result saved: message_id=%s category=%r priority=%r confidence=%s "
+        "requires_human_review=%s draft_len=%s",
+        message.id, result.category, result.priority, result.confidence,
+        result.requires_human_review,
         len(result.draft_reply) if result.draft_reply else 0,
     )
     return result
