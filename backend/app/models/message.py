@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -26,7 +26,6 @@ class Message(Base):
         nullable=False,
         index=True,
     )
-    # "owner" | "contact" | "ai"
     sender: Mapped[str] = mapped_column(
         nullable=False,
         comment="Who sent the message: 'owner', 'contact', or 'ai'",
@@ -47,6 +46,25 @@ class Message(Base):
             "Never sent automatically — the original message content is untouched."
         ),
     )
+    # ── Phase 3 additions — draft lifecycle tracking ─────────────────────────
+    edited_draft: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Owner-edited version of draft_reply. If set, this is what gets sent.",
+    )
+    draft_status: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, index=True,
+        comment="pending | approved | rejected | sent — null if no draft was generated",
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    approved_by: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="Identifier of who approved this draft (reserved for future multi-user support)",
+    )
     timestamp: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
@@ -54,11 +72,10 @@ class Message(Base):
         index=True,
     )
 
-    # ── Relationships ─────────────────────────────────────────────────────────
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
 
     def __repr__(self) -> str:
         return (
             f"<Message id={self.id} conversation_id={self.conversation_id} "
-            f"sender={self.sender!r} timestamp={self.timestamp}>"
+            f"sender={self.sender!r} draft_status={self.draft_status!r}>"
         )
