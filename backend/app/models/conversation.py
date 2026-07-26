@@ -5,7 +5,7 @@ Conversation ORM model — a grouped thread of messages with a single user.
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, DateTime, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -38,7 +38,6 @@ class Conversation(Base):
         String(32), default="normal", nullable=False,
         comment="low | normal | high | urgent",
     )
-    # ── Phase 2 additions ─────────────────────────────────────────────────────
     status: Mapped[str] = mapped_column(
         String(16), default="open", nullable=False, index=True,
         comment="open | closed — only 'open' conversations receive new incoming messages",
@@ -52,13 +51,16 @@ class Conversation(Base):
         index=True,
         comment="Timestamp of the most recent message in this conversation",
     )
+    is_locked: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false",
+        comment="Locked conversations never auto-reply and always require manual approval",
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         nullable=False,
     )
 
-    # ── Relationships ─────────────────────────────────────────────────────────
     user: Mapped["User"] = relationship(back_populates="conversations")
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation",
@@ -70,5 +72,5 @@ class Conversation(Base):
     def __repr__(self) -> str:
         return (
             f"<Conversation id={self.id} user_id={self.user_id} "
-            f"status={self.status!r} category={self.category!r} priority={self.priority!r}>"
+            f"status={self.status!r} is_locked={self.is_locked} priority={self.priority!r}>"
         )
