@@ -1,12 +1,7 @@
 """
-Telethon event handlers — Phase 2 full pipeline.
-
-Incoming private message -> identify sender -> persist User/Conversation/Message
--> (if enabled) run AI agent -> persist category/priority + draft_reply.
-
-Explicitly ignored: groups, channels, bots, and service messages (see
-`_should_process`). No message is ever sent automatically in this phase --
-even in "autonomous" mode, which is reserved for Phase 4.
+Telethon event handlers — Phase 2 pipeline, touched up in Phase 3 to set
+draft_status when a draft is generated, and to avoid double-counting
+already-sent drafts when building agent history.
 """
 
 from __future__ import annotations
@@ -30,15 +25,12 @@ from app.services.settings_service import get_assistant_mode
 
 logger = logging.getLogger(__name__)
 
-# Assistant mode values (mirrors Settings.assistant_mode as already defined
-# on the model). Spec-level names OFF / ASSIST / AUTO map onto these.
-MODE_OFF = "passive"        # OFF     — store only, no AI
-MODE_ASSIST = "suggestive"  # ASSIST  — generate draft replies (default)
-MODE_AUTO = "autonomous"    # AUTO    — reserved for Phase 4, never sends yet
+MODE_OFF = "passive"
+MODE_ASSIST = "suggestive"
+MODE_AUTO = "autonomous"
 
 
 def register_handlers(client: TelegramClient) -> None:
-    """Register all Telegram event handlers on the given client."""
     logger.info("Registering Telegram event handlers...")
 
     @client.on(events.NewMessage(incoming=True))
@@ -48,18 +40,15 @@ def register_handlers(client: TelegramClient) -> None:
     @client.on(events.MessageEdited(incoming=True))
     async def on_message_edited(event: events.MessageEdited.Event) -> None:
         logger.debug("Message edited: id=%s", event.message.id)
-        # TODO Phase 3: update stored message content / re-run agent if needed
 
     @client.on(events.MessageRead)
     async def on_message_read(event: events.MessageRead.Event) -> None:
         logger.debug("Messages read up to id=%s in peer=%s", event.max_id, event.peer)
-        # TODO Phase 3: update read-status in DB
 
     logger.info("Telegram event handlers registered.")
 
 
 async def _handle_incoming_message(event: events.NewMessage.Event) -> None:
-    """Full Phase 2 pipeline for a single incoming Telegram message."""
     msg: TelethonMessage = event.message
 
     if not await _should_process(event, msg):
@@ -74,7 +63,6 @@ async def _handle_incoming_message(event: events.NewMessage.Event) -> None:
 
             message = await _store_message(db, conversation, msg)
             if message is None:
-                # Duplicate delivery of a Telegram message we've already stored.
                 await db.commit()
                 return
 
@@ -97,7 +85,8 @@ async def _handle_incoming_message(event: events.NewMessage.Event) -> None:
             if mode == MODE_AUTO:
                 logger.info(
                     "Mode is 'autonomous' - auto-send is reserved for Phase 4; "
-                    "draft was generated but NOT sent."
+                    "draft was generated but NOT sent. Use the Phase 3 draft "
+                    "approve/send endpoints instead."
                 )
 
     except Exception:  # noqa: BLE001
@@ -105,35 +94,25 @@ async def _handle_incoming_message(event: events.NewMessage.Event) -> None:
 
 
 async def _should_process(event: events.NewMessage.Event, msg: TelethonMessage) -> bool:
-    """
-    Filter to private, non-bot, non-service incoming messages only.
-    Groups, channels, and bot senders are explicitly ignored.
-    """
     if not event.is_private:
         logger.debug("Ignoring non-private message id=%s.", msg.id)
         return False
-
     if msg.action is not None:
         logger.debug("Ignoring service message id=%s.", msg.id)
         return False
-
     sender = await event.get_sender()
     if sender is None:
         logger.debug("Ignoring message id=%s with unresolved sender.", msg.id)
         return False
-
     if getattr(sender, "bot", False):
         logger.debug("Ignoring message id=%s from bot sender.", msg.id)
         return False
-
     if not isinstance(sender, TelethonUser):
         logger.debug("Ignoring message id=%s from non-user sender.", msg.id)
         return False
-
     if not (msg.text or msg.message):
         logger.debug("Ignoring non-text message id=%s.", msg.id)
         return False
-
     return True
 
 
@@ -167,11 +146,6 @@ async def _get_or_create_user(db: AsyncSession, sender: TelethonUser) -> User:
 
 
 async def _get_or_create_conversation(db: AsyncSession, user: User) -> Conversation:
-    """
-    Return the user's open conversation, creating one if none exists.
-    Conversations are never auto-closed in Phase 2 -- closing is a future
-    (Phase 3+) concern, so every user has at most one open conversation.
-    """
     conversation = await db.scalar(
         select(Conversation)
         .where(Conversation.user_id == user.id, Conversation.status == "open")
@@ -190,7 +164,6 @@ async def _get_or_create_conversation(db: AsyncSession, user: User) -> Conversat
 async def _store_message(
     db: AsyncSession, conversation: Conversation, msg: TelethonMessage
 ) -> Message | None:
-    """Persist the incoming message. Returns None if it's a duplicate."""
     existing = await db.scalar(
         select(Message).where(
             Message.conversation_id == conversation.id,
@@ -220,16 +193,18 @@ async def _store_message(
 
 def _build_history(conversation: Conversation, exclude_message_id: int) -> list[dict[str, str]]:
     """
-    Turn a conversation's prior messages into agent-format history,
-    interleaving stored draft replies as 'ai' turns for continuity.
+    Pending/approved drafts are synthesized as an 'ai' turn so the agent has
+    continuity even before a draft is sent. Once a draft is actually sent,
+    the real outgoing Message row (sender='ai') already carries that turn,
+    so we don't synthesize it a second time.
     """
     history: list[dict[str, str]] = []
     for m in conversation.messages:
         if m.id == exclude_message_id:
             continue
         history.append({"sender": m.sender, "content": m.content})
-        if m.draft_reply:
-            history.append({"sender": "ai", "content": m.draft_reply})
+        if m.draft_status in ("pending", "approved") and (m.edited_draft or m.draft_reply):
+            history.append({"sender": "ai", "content": m.edited_draft or m.draft_reply})
     return history
 
 
@@ -240,7 +215,6 @@ async def _run_agent_and_save(
     user: User,
     sender: TelethonUser,
 ) -> AgentResult:
-    """Run the AI agent and persist category/priority + draft_reply."""
     history = _build_history(conversation, exclude_message_id=message.id)
 
     sender_name = sender.username or sender.first_name or f"user_{user.telegram_id}"
@@ -265,6 +239,11 @@ async def _run_agent_and_save(
         conversation.priority = result.priority
     if result.draft_reply:
         message.draft_reply = result.draft_reply
+        message.draft_status = "pending"
+        message.edited_draft = None
+        message.approved_at = None
+        message.sent_at = None
+        message.approved_by = None
 
     await db.commit()
     logger.info(
