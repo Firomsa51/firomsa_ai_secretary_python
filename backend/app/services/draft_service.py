@@ -1,26 +1,25 @@
 """
-Draft management service (Phase 3) — the approve / edit / reject / send
-lifecycle for AI-generated draft replies.
+Draft management service (Phase 3, updated in Phase 4) — the approve /
+edit / reject / send lifecycle for AI-generated draft replies.
 
 No new "Draft" table: a draft is inherently 1:1 with the incoming Message
-it replies to, so lifecycle fields live directly on Message (draft_reply
-from Phase 2; edited_draft, draft_status, approved_at, sent_at, approved_by
-from Phase 3). Actions are audit-logged via the standard logger, consistent
-with how the rest of this project logs auth/connection/processing events —
-no separate audit table.
+it replies to, so lifecycle fields live directly on Message. Actions are
+audit-logged via the standard logger. The actual Telethon send call now
+lives in telegram_send_service.py, shared with the Phase 4 autonomous
+engine, so that logic exists in exactly one place.
 """
 
 import logging
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
-from app.telegram.client import telegram_client
+from app.services.telegram_send_service import send_text_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +128,8 @@ async def reject_draft(
 
 async def send_approved_draft(db: AsyncSession, message_id: int) -> Message:
     """
-    Send an approved draft to the contact via the live Telethon client, and
-    record the outgoing text as a new Message row (sender='ai') so it shows
-    up in the normal conversation transcript alongside everything else.
+    Send an approved draft to the contact via the shared send helper, and
+    mark this message's lifecycle as sent (sent_via='manual').
     """
     message = await _get_message_with_draft_or_404(db, message_id)
     if message.draft_status != "approved":
@@ -151,37 +149,14 @@ async def send_approved_draft(db: AsyncSession, message_id: int) -> Message:
     if not text_to_send:
         raise HTTPException(status_code=400, detail="Draft has no content to send.")
 
-    if not telegram_client.is_connected or not await telegram_client.is_authorised():
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Telegram client is not connected/authorised. Cannot send.",
-        )
+    outgoing = await send_text_to_user(db, conversation, user, text_to_send, sent_via="manual")
 
-    try:
-        sent = await telegram_client.client.send_message(user.telegram_id, text_to_send)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to send approved draft message_id=%s", message.id)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to send message via Telegram: {exc}",
-        ) from exc
-
-    now = datetime.now(timezone.utc)
     message.draft_status = "sent"
-    message.sent_at = now
-
-    outgoing = Message(
-        conversation_id=conversation.id,
-        sender="ai",
-        content=text_to_send,
-        telegram_message_id=getattr(sent, "id", None),
-    )
-    db.add(outgoing)
-    conversation.last_message_at = now
+    message.sent_at = datetime.now(timezone.utc)
 
     await db.commit()
     logger.info(
-        "AUDIT draft sent: message_id=%s conversation_id=%s outgoing_message_id=%s",
+        "AUDIT draft sent (manual): message_id=%s conversation_id=%s outgoing_message_id=%s",
         message.id, conversation.id, outgoing.id,
     )
     return message
