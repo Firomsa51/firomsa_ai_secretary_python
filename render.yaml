@@ -12,7 +12,7 @@ services:
     region: oregon
     plan: starter               # upgrade to "standard" for production
 
-    rootDir: firomsa-ai-secretary/backend
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
@@ -21,7 +21,7 @@ services:
     envVars:
       # ── Server ──────────────────────────────────────────────────────────────
       - key: PORT
-        value: "10000"          # Render assigns this automatically; kept for clarity
+        value: "10000"
       - key: DEBUG
         value: "false"
       - key: LOG_LEVEL
@@ -29,11 +29,13 @@ services:
 
       # ── Security ────────────────────────────────────────────────────────────
       - key: SECRET_KEY
-        generateValue: true     # Render auto-generates a random value on first deploy
+        generateValue: true
 
-      # ── Database — filled manually in the Render dashboard ──────────────────
+      # ── Database — auto-wired from the managed Postgres below ───────────────
       - key: DATABASE_URL
-        sync: false             # prompt user to enter value
+        fromDatabase:
+          name: firomsa-db
+          property: connectionString
 
       # ── Telegram ────────────────────────────────────────────────────────────
       - key: TELEGRAM_API_ID
@@ -43,19 +45,19 @@ services:
       - key: TELEGRAM_PHONE
         sync: false
       - key: TELEGRAM_SESSION
-        sync: false             # populate after first successful auth
+        sync: false
 
       # ── AI Provider ─────────────────────────────────────────────────────────
       - key: AI_PROVIDER
-        value: openai           # change to "groq" if preferred
+        value: openai
       - key: OPENAI_API_KEY
         sync: false
       - key: GROQ_API_KEY
         sync: false
 
-  # ── Managed PostgreSQL database ────────────────────────────────────────────
-  - type: pserv
-    name: firomsa-db
-    plan: starter
+# ── Managed PostgreSQL database ────────────────────────────────────────────
+databases:
+  - name: firomsa-db
     databaseName: firomsa
-    databaseUser: firomsa
+    user: firomsa
+    plan: starter
