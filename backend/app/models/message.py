@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -38,7 +38,6 @@ class Message(Base):
         nullable=True,
         comment="Original Telegram message ID for deduplication",
     )
-    # ── Phase 2 addition ──────────────────────────────────────────────────────
     draft_reply: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment=(
@@ -46,7 +45,6 @@ class Message(Base):
             "Never sent automatically — the original message content is untouched."
         ),
     )
-    # ── Phase 3 additions — draft lifecycle tracking ─────────────────────────
     edited_draft: Mapped[str | None] = mapped_column(
         Text, nullable=True,
         comment="Owner-edited version of draft_reply. If set, this is what gets sent.",
@@ -63,7 +61,32 @@ class Message(Base):
     )
     approved_by: Mapped[str | None] = mapped_column(
         String(255), nullable=True,
-        comment="Identifier of who approved this draft (reserved for future multi-user support)",
+        comment="Identifier of who approved this draft ('autonomous_engine' for Phase 4 auto-sends)",
+    )
+    # ── Phase 4 additions — AI signal + autonomous-send tracking ─────────────
+    ai_confidence: Mapped[float | None] = mapped_column(
+        Float, nullable=True,
+        comment="Model's self-reported confidence (0.0-1.0) that an automatic reply would be safe/accurate",
+    )
+    ai_intent: Mapped[str | None] = mapped_column(
+        String(64), nullable=True,
+        comment="Short label for the detected intent, e.g. 'schedule_meeting'",
+    )
+    ai_sentiment: Mapped[str | None] = mapped_column(
+        String(32), nullable=True,
+        comment="positive | neutral | negative | urgent",
+    )
+    ai_reasoning: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Model's one-line explanation for its confidence score",
+    )
+    requires_human_review: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false",
+        comment="AI-flagged: financial/legal/medical/auth-code/human-request content — never auto-send",
+    )
+    sent_via: Mapped[str | None] = mapped_column(
+        String(16), nullable=True,
+        comment="'manual' (owner approved) | 'auto' (autonomous engine) — null if never sent",
     )
     timestamp: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
