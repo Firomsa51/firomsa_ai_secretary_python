@@ -21,4 +21,6 @@ class ConversationRead(BaseModel):
     title: str | None
     category: str | None
     priority: str
+    status: str
+    last_message_at: datetime
     created_at: datetime
