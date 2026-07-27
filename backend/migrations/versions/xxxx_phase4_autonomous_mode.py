@@ -1,14 +1,14 @@
 """add phase4 autonomous mode fields (message AI signals + settings rules + user trust/block + conversation lock)
 
-Revision ID: cedc361c4bad
-Revises: e231d909c70e
+Revision ID: phase4
+Revises: phase3
 Create Date: 2026-07-26
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "cedc361c4bad"
-down_revision = "e231d909c70e"
+revision = "phase4"
+down_revision = "phase3"
 branch_labels = None
 depends_on = None
 
@@ -63,7 +63,8 @@ def upgrade() -> None:
         sa.Column("cooldown_minutes", sa.Integer(), nullable=False, server_default="15"),
     )
     op.add_column(
-        "settings", sa.Column("max_replies_per_conversation", sa.Integer(), nullable=True)
+        "settings",
+        sa.Column("max_replies_per_conversation", sa.Integer(), nullable=True)
     )
     op.add_column(
         "settings",
