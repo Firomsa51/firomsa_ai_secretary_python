@@ -1,14 +1,14 @@
 """add phase4 autonomous mode fields (message AI signals + settings rules + user trust/block + conversation lock)
 
-Revision ID: <FILL_IN>
-Revises: <SET_TO_LATEST_HEAD>
+Revision ID: cedc361c4bad
+Revises: e231d909c70e
 Create Date: 2026-07-26
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "<FILL_IN>"
-down_revision = "<SET_TO_LATEST_HEAD>"
+revision = "cedc361c4bad"
+down_revision = "e231d909c70e"
 branch_labels = None
 depends_on = None
 
