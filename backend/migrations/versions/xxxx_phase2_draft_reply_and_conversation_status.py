@@ -1,4 +1,4 @@
-"""add draft_reply, conversations, and settings
+"""add draft_reply, conversations, settings, and users
 
 Revision ID: phase2
 Revises: None
@@ -15,6 +15,12 @@ depends_on = None
 
 def upgrade() -> None:
     # 1. Jalqaba gabateewwan uumuu
+    op.create_table(
+        "users",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("username", sa.String(length=255), nullable=True),
+    )
+
     op.create_table(
         "conversations",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -50,3 +56,4 @@ def downgrade() -> None:
     op.drop_table("settings")
     op.drop_table("messages")
     op.drop_table("conversations")
+    op.drop_table("users")
