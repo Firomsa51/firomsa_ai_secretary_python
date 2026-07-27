@@ -1,14 +1,14 @@
 """add draft lifecycle fields (edited_draft, draft_status, approved_at, sent_at, approved_by) to messages
 
-Revision ID: <FILL_IN>
-Revises: <SET_TO_PHASE2_REVISION_OR_LATEST_HEAD>
+Revision ID: e231d909c70e
+Revises: fcf9d7964d51
 Create Date: 2026-07-26
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "<FILL_IN>"
-down_revision = "<SET_TO_PHASE2_REVISION_OR_LATEST_HEAD>"
+revision = "e231d909c70e"
+down_revision = "fcf9d7964d51"
 branch_labels = None
 depends_on = None
 
@@ -20,7 +20,6 @@ def upgrade() -> None:
     op.add_column("messages", sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("messages", sa.Column("approved_by", sa.String(length=255), nullable=True))
     op.create_index("ix_messages_draft_status", "messages", ["draft_status"])
-
     op.execute(
         "UPDATE messages SET draft_status = 'pending' "
         "WHERE draft_reply IS NOT NULL AND draft_status IS NULL"
