@@ -1,14 +1,14 @@
 """add draft lifecycle fields (edited_draft, draft_status, approved_at, sent_at, approved_by) to messages
 
-Revision ID: e231d909c70e
-Revises: fcf9d7964d51
+Revision ID: phase3
+Revises: phase2
 Create Date: 2026-07-26
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "e231d909c70e"
-down_revision = "fcf9d7964d51"
+revision = "phase3"
+down_revision = "phase2"
 branch_labels = None
 depends_on = None
 
