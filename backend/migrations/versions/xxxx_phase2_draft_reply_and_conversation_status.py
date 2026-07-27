@@ -1,25 +1,30 @@
-"""create initial tables and add draft_reply/conversations fields
+"""add draft_reply, conversations, and settings
 
-Revision ID: fcf9d7964d51
-Revises:
+Revision ID: phase2
+Revises: None
 Create Date: 2026-07-25
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "fcf9d7964d51"
+revision = "phase2"
 down_revision = None
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    # 1. Jalqaba gabateewwan barbaachisan uumuu
+    # 1. Jalqaba gabateewwan uumuu
     op.create_table(
         "conversations",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("status", sa.String(length=16), nullable=False, server_default="open"),
-        sa.Column("last_message_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "last_message_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
     )
     
     op.create_table(
@@ -34,7 +39,7 @@ def upgrade() -> None:
         sa.Column("assistant_mode", sa.String(length=32), server_default="suggestive"),
     )
 
-    # 2. Index uumuu
+    # 2. Index-oota uumuu
     op.create_index("ix_conversations_status", "conversations", ["status"])
     op.create_index("ix_conversations_last_message_at", "conversations", ["last_message_at"])
 
