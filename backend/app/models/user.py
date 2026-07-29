@@ -5,7 +5,7 @@ User ORM model — represents a Telegram user known to the secretary.
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -21,41 +21,68 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
     telegram_id: Mapped[int] = mapped_column(
-        BigInteger, unique=True, nullable=False, index=True,
-        comment="Telegram user ID (may exceed 32-bit range)",
+        BigInteger,
+        unique=True,
+        nullable=False,
+        index=True,
+        comment="Telegram user ID",
     )
+
     username: Mapped[str | None] = mapped_column(
-        String(255), nullable=True,
-        comment="Telegram @username without the @ prefix",
+        String(255),
+        nullable=True,
     )
+
     first_name: Mapped[str] = mapped_column(
-        String(255), nullable=False,
-        comment="Telegram display first name",
+        String(255),
+        nullable=False,
     )
+
     last_name: Mapped[str | None] = mapped_column(
-        String(255), nullable=True,
+        String(255),
+        nullable=True,
     )
+
     is_trusted: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, server_default="false",
-        comment="Trusted contacts are eligible for autonomous auto-replies",
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
     )
+
     is_blocked: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, server_default="false",
-        comment="Blocked senders never receive automatic replies (drafts still generated)",
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
     )
+
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         nullable=False,
     )
 
     conversations: Mapped[list["Conversation"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+        "Conversation",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
+
     memories: Mapped[list["Memory"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+        "Memory",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:
-        return f"<User id={self.id} telegram_id={self.telegram_id} username={self.username!r}>"
+        return (
+            f"<User id={self.id} "
+            f"telegram_id={self.telegram_id} "
+            f"username={self.username!r}>"
+        )
