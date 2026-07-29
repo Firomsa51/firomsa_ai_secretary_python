@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import engine, Base, AsyncSessionLocal
@@ -69,6 +70,17 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Root route to fix 404 on base URL
+    @app.get("/", tags=["Health"])
+    async def root():
+        return JSONResponse(
+            content={
+                "status": "online",
+                "message": "Firomsa AI Secretary Backend Server is Running!",
+                "docs": "/docs",
+            }
+        )
 
     app.include_router(api_router)
     return app
