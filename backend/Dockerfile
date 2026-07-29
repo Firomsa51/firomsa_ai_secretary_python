@@ -1,6 +1,6 @@
 ################################################################################
 # Firomsa AI Secretary — Dockerfile
-# Target: Render worker service (or any OCI-compatible runtime)
+# Target: Render worker/web service (OCI-compatible runtime)
 ################################################################################
 
 # ── Build stage ───────────────────────────────────────────────────────────────
@@ -8,7 +8,7 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
-# Install build tools needed for native dependencies (cryptg, asyncpg)
+# Build tools dependencies needed for native C-extensions (cryptg, asyncpg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
@@ -25,16 +25,16 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
 
-# Copy installed packages from builder
+# Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
 
-# Copy application source
+# Copy application source code
 COPY . .
 
 # Switch to non-root user
 USER appuser
 
-# ── Environment defaults (overridden at runtime) ───────────────────────────────
+# ── Environment defaults ───────────────────────────────────────────────────────
 ENV PORT=8000 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -42,6 +42,5 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# 1. Direct Python SQLAlchemy script to clean 'alembic_version' table if stuck on 'phase4'
-# 2. Start Uvicorn API server
-CMD ["sh", "-c", "python3 -c \"import os, sqlalchemy as sa; engine = sa.create_engine(os.getenv('DATABASE_URL','').replace('postgresql+asyncpg','postgresql')); engine.execute('DROP TABLE IF EXISTS alembic_version CASCADE;')\" || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Runs database migrations gracefully and starts the Uvicorn FastAPI server
+CMD ["sh", "-c", "alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
