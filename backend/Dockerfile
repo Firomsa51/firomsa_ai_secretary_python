@@ -42,5 +42,7 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# Force Alembic to set database state to head_baseline, then launch Uvicorn
-CMD ["sh", "-c", "alembic stamp head_baseline && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# 1. Force stamp database to head_baseline (clears stuck 'phase4' revision)
+# 2. Run alembic upgrade head
+# 3. Start Uvicorn API server
+CMD ["sh", "-c", "alembic stamp head_baseline || alembic -c backend/alembic.ini stamp head_baseline || true; alembic upgrade head || alembic -c backend/alembic.ini upgrade head; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
