@@ -1,6 +1,5 @@
 ################################################################################
-# Firomsa AI Secretary — Dockerfile
-# Target: Render worker/web service (OCI-compatible runtime)
+# Firomsa AI Secretary — Backend Dockerfile
 ################################################################################
 
 # ── Build stage ───────────────────────────────────────────────────────────────
@@ -8,7 +7,7 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
-# Build tools dependencies needed for native C-extensions (cryptg, asyncpg)
+# Install build tools for native C-extensions (asyncpg, cryptg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
@@ -20,7 +19,7 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
-# Non-root user for security
+# Create non-root user
 RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
@@ -28,13 +27,12 @@ WORKDIR /app
 # Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
 
-# Copy application source code
+# Copy backend source code
 COPY . .
 
 # Switch to non-root user
 USER appuser
 
-# ── Environment defaults ───────────────────────────────────────────────────────
 ENV PORT=8000 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -42,7 +40,7 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# 1. Clear stuck 'alembic_version' using asyncpg (native async driver already in image)
-# 2. Run alembic upgrade head to sync DB schema & add missing columns (like auto_reply_enabled)
-# 3. Launch Uvicorn server
-CMD ["sh", "-c", "python3 -c \"import asyncio, os, asyncpg; asyncio.run((lambda: asyncpg.connect(os.getenv('DATABASE_URL','').replace('postgresql+asyncpg://','postgresql://')))().execute('DROP TABLE IF EXISTS alembic_version CASCADE;'))\" || true; alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# 1. Runs reset_db.py to clear stuck 'alembic_version' (phase4) table safely
+# 2. Applies database migrations (alembic upgrade head)
+# 3. Starts FastAPI app via Uvicorn
+CMD ["sh", "-c", "python3 reset_db.py || true; alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
