@@ -21,27 +21,42 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+
     title: Mapped[str | None] = mapped_column(
-        String(512), nullable=True,
+        String(512),
+        nullable=True,
         comment="Auto-generated or user-provided title for the conversation",
     )
+
     category: Mapped[str | None] = mapped_column(
-        String(128), nullable=True,
+        String(128),
+        nullable=True,
         comment="e.g. work, personal, networking, support",
     )
+
     priority: Mapped[str] = mapped_column(
-        String(32), default="normal", nullable=False,
+        String(32),
+        default="normal",
+        nullable=False,
+        server_default="normal",
         comment="low | normal | high | urgent",
     )
+
     status: Mapped[str] = mapped_column(
-        String(16), default="open", nullable=False, index=True,
-        comment="open | closed — only 'open' conversations receive new incoming messages",
+        String(16),
+        default="open",
+        server_default="open",
+        nullable=False,
+        index=True,
+        comment="open | closed",
     )
+
     last_message_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -49,20 +64,31 @@ class Conversation(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
         index=True,
-        comment="Timestamp of the most recent message in this conversation",
+        comment="Timestamp of the most recent message",
     )
+
     is_locked: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, server_default="false",
-        comment="Locked conversations never auto-reply and always require manual approval",
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+        comment="Locked conversations never auto-reply",
     )
+
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         nullable=False,
     )
 
-    user: Mapped["User"] = relationship(back_populates="conversations")
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="conversations",
+    )
+
     messages: Mapped[list["Message"]] = relationship(
+        "Message",
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="Message.timestamp",
@@ -71,6 +97,8 @@ class Conversation(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<Conversation id={self.id} user_id={self.user_id} "
-            f"status={self.status!r} is_locked={self.is_locked} priority={self.priority!r}>"
+            f"<Conversation id={self.id} "
+            f"user_id={self.user_id} "
+            f"status={self.status!r} "
+            f"priority={self.priority!r}>"
         )
