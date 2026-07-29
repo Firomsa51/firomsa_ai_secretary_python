@@ -48,13 +48,24 @@ class TelegramAuthService:
     """
 
     def __init__(self) -> None:
-        # Build a fresh client that shares the same session type but
-        # operates independently of the main singleton during auth.
-        
-        # FIX: Pass None instead of empty string "" to avoid Telethon ValueError('Not a valid string')
-        raw_session = settings.telegram_session.strip() if settings.telegram_session and settings.telegram_session.strip() else None
-        session = StringSession(raw_session)
-        
+        # ── TELETHON SESSION SANITIZATION (CRITICAL FIX) ──────────────────────
+        # Strip spaces and filter out common invalid string representation values
+        raw_session = settings.telegram_session.strip() if settings.telegram_session else None
+
+        if raw_session in ("", '""', "''", "None", "null", "undefined"):
+            raw_session = None
+
+        # Safely instantiate StringSession without letting invalid values crash the app
+        session = None
+        if raw_session:
+            try:
+                session = StringSession(raw_session)
+            except Exception as err:
+                logger.warning("Invalid TELEGRAM_SESSION provided (%s). Falling back to new session.", err)
+                session = StringSession(None)
+        else:
+            session = StringSession(None)
+
         self._client = TelegramClient(
             session,
             api_id=settings.telegram_api_id,
