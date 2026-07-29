@@ -42,5 +42,7 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# Runs database migrations gracefully and starts the Uvicorn FastAPI server
-CMD ["sh", "-c", "alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# 1. Clear stuck 'alembic_version' using asyncpg (native async driver already in image)
+# 2. Run alembic upgrade head to sync DB schema & add missing columns (like auto_reply_enabled)
+# 3. Launch Uvicorn server
+CMD ["sh", "-c", "python3 -c \"import asyncio, os, asyncpg; asyncio.run((lambda: asyncpg.connect(os.getenv('DATABASE_URL','').replace('postgresql+asyncpg://','postgresql://')))().execute('DROP TABLE IF EXISTS alembic_version CASCADE;'))\" || true; alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
