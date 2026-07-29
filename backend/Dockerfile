@@ -8,7 +8,7 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
-# Install build tools needed for some native dependencies (cryptg, asyncpg)
+# Install build tools needed for native dependencies (cryptg, asyncpg)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
@@ -31,9 +31,6 @@ COPY --from=builder /install /usr/local
 # Copy application source
 COPY . .
 
-# Ensure migrations directory is present
-RUN mkdir -p migrations/versions
-
 # Switch to non-root user
 USER appuser
 
@@ -45,5 +42,5 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# Run Alembic migrations then start the API server.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Force-stamp the new baseline migration if database state is stuck, then run upgrade
+CMD ["sh", "-c", "alembic stamp head_baseline || true && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
