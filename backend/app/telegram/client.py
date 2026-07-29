@@ -34,10 +34,23 @@ class FiromsaTelegramClient:
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
-    def _build_client(self, session_string: str) -> TelegramClient:
-        """Construct a TelegramClient from a StringSession."""
+    def _build_client(self, session_string: str | None) -> TelegramClient:
+        """Construct a TelegramClient from a StringSession safely."""
+        raw_session = session_string.strip() if session_string else None
+        
+        # Clean up string artifacts that crash Telethon
+        if raw_session in ("", '""', "''", "None", "null", "undefined"):
+            raw_session = None
+
+        # Try building session safely, fall back to None if invalid
+        try:
+            session = StringSession(raw_session)
+        except Exception as err:
+            logger.warning("Invalid Telegram session string provided (%s). Starting unauthenticated.", err)
+            session = StringSession(None)
+
         return TelegramClient(
-            StringSession(session_string),
+            session,
             api_id=settings.telegram_api_id,
             api_hash=settings.telegram_api_hash,
         )
@@ -45,7 +58,7 @@ class FiromsaTelegramClient:
     async def _try_connect(self) -> None:
         """
         Connect to Telegram and register event handlers if the session is
-        already authorised.  Safe to call multiple times — no-op if already
+        already authorised. Safe to call multiple times — no-op if already
         connected.
         """
         if self._connected:
@@ -117,7 +130,7 @@ class FiromsaTelegramClient:
     async def reconnect_with_session(self, session_string: str) -> None:
         """
         Replace the active client with a new one using *session_string*
-        and connect immediately.  Called after a successful OTP verification.
+        and connect immediately. Called after a successful OTP verification.
         """
         logger.info(
             "Reconnecting Telegram client with new session (len=%d).",
