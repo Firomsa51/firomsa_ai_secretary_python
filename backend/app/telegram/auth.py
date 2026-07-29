@@ -9,7 +9,7 @@ Flow
 ────
 1. POST /auth/request  → send_code_request()  → stores phone_code_hash in memory
 2. POST /auth/verify   → sign_in()             → exports StringSession
-3.  ↳ if SessionPasswordNeededError → retry with 2FA password
+3.   ↳ if SessionPasswordNeededError → retry with 2FA password
 """
 
 import logging
@@ -50,7 +50,11 @@ class TelegramAuthService:
     def __init__(self) -> None:
         # Build a fresh client that shares the same session type but
         # operates independently of the main singleton during auth.
-        session = StringSession(settings.telegram_session or "")
+        
+        # FIX: Pass None instead of empty string "" to avoid Telethon ValueError('Not a valid string')
+        raw_session = settings.telegram_session.strip() if settings.telegram_session and settings.telegram_session.strip() else None
+        session = StringSession(raw_session)
+        
         self._client = TelegramClient(
             session,
             api_id=settings.telegram_api_id,
