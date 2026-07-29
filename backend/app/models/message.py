@@ -3,7 +3,6 @@ Message ORM model — an individual message within a conversation.
 """
 
 from datetime import datetime, timezone
-
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, func
@@ -21,84 +20,111 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
     conversation_id: Mapped[int] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+
     sender: Mapped[str] = mapped_column(
+        String(32),
         nullable=False,
-        comment="Who sent the message: 'owner', 'contact', or 'ai'",
+        comment="owner | contact | ai",
     )
+
     content: Mapped[str] = mapped_column(
-        Text, nullable=False,
+        Text,
+        nullable=False,
         comment="Full message text",
     )
+
     telegram_message_id: Mapped[int | None] = mapped_column(
         nullable=True,
-        comment="Original Telegram message ID for deduplication",
+        index=True,
+        comment="Original Telegram message ID",
     )
+
     draft_reply: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
-        comment=(
-            "AI-generated draft reply for this incoming message. "
-            "Never sent automatically — the original message content is untouched."
-        ),
+        Text,
+        nullable=True,
     )
+
     edited_draft: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
-        comment="Owner-edited version of draft_reply. If set, this is what gets sent.",
+        Text,
+        nullable=True,
     )
+
     draft_status: Mapped[str | None] = mapped_column(
-        String(16), nullable=True, index=True,
-        comment="pending | approved | rejected | sent — null if no draft was generated",
+        String(16),
+        nullable=True,
+        index=True,
     )
+
     approved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
+
     sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
+
     approved_by: Mapped[str | None] = mapped_column(
-        String(255), nullable=True,
-        comment="Identifier of who approved this draft ('autonomous_engine' for Phase 4 auto-sends)",
+        String(255),
+        nullable=True,
     )
-    # ── Phase 4 additions — AI signal + autonomous-send tracking ─────────────
+
     ai_confidence: Mapped[float | None] = mapped_column(
-        Float, nullable=True,
-        comment="Model's self-reported confidence (0.0-1.0) that an automatic reply would be safe/accurate",
+        Float,
+        nullable=True,
     )
+
     ai_intent: Mapped[str | None] = mapped_column(
-        String(64), nullable=True,
-        comment="Short label for the detected intent, e.g. 'schedule_meeting'",
+        String(64),
+        nullable=True,
     )
+
     ai_sentiment: Mapped[str | None] = mapped_column(
-        String(32), nullable=True,
-        comment="positive | neutral | negative | urgent",
+        String(32),
+        nullable=True,
     )
+
     ai_reasoning: Mapped[str | None] = mapped_column(
-        Text, nullable=True,
-        comment="Model's one-line explanation for its confidence score",
+        Text,
+        nullable=True,
     )
+
     requires_human_review: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, server_default="false",
-        comment="AI-flagged: financial/legal/medical/auth-code/human-request content — never auto-send",
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
     )
+
     sent_via: Mapped[str | None] = mapped_column(
-        String(16), nullable=True,
-        comment="'manual' (owner approved) | 'auto' (autonomous engine) — null if never sent",
+        String(16),
+        nullable=True,
     )
+
     timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         nullable=False,
         index=True,
     )
 
-    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    conversation: Mapped["Conversation"] = relationship(
+        "Conversation",
+        back_populates="messages",
+    )
 
     def __repr__(self) -> str:
         return (
-            f"<Message id={self.id} conversation_id={self.conversation_id} "
-            f"sender={self.sender!r} draft_status={self.draft_status!r}>"
+            f"<Message id={self.id} "
+            f"conversation_id={self.conversation_id} "
+            f"sender={self.sender!r} "
+            f"draft_status={self.draft_status!r}>"
         )
