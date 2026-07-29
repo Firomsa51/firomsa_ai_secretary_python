@@ -42,5 +42,5 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# Force-stamp the new baseline migration if database state is stuck, then run upgrade
-CMD ["sh", "-c", "alembic stamp head_baseline || true && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Force Alembic to set database state to head_baseline, then launch Uvicorn
+CMD ["sh", "-c", "alembic stamp head_baseline && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
