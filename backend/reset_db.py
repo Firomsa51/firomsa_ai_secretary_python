@@ -13,28 +13,21 @@ async def fix_database_schema() -> None:
         logger.warning("DATABASE_URL variable is not set. Skipping DB fix.")
         return
 
-    # Clean connection string for raw asyncpg
+    # Clean connection string for direct asyncpg
     clean_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-    
+
     try:
         conn = await asyncpg.connect(clean_url)
-        
-        # 1. Reset alembic version table
+
+        # 1. Drop alembic version table
         await conn.execute("DROP TABLE IF EXISTS alembic_version CASCADE;")
         logger.info("Dropped alembic_version table.")
 
-        # 2. Add missing column 'auto_reply_enabled' directly if it doesn't exist
-        await conn.execute("""
-            DO $$ 
-            BEGIN 
-                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='settings') THEN
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='auto_reply_enabled') THEN
-                        ALTER TABLE settings ADD COLUMN auto_reply_enabled BOOLEAN DEFAULT TRUE;
-                    END IF;
-                END IF;
-            END $$;
-        """)
-        logger.info("Ensured 'auto_reply_enabled' column exists in settings table.")
+        # 2. Drop existing outdated 'settings' table so FastAPI/SQLAlchemy recreates it with ALL columns
+        await conn.execute("DROP TABLE IF EXISTS settings CASCADE;")
+        logger.info(
+            "Dropped old settings table. FastAPI will recreate it clean with all columns."
+        )
 
         await conn.close()
     except Exception as err:
