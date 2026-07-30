@@ -23,10 +23,13 @@ async def fix_database_schema() -> None:
         await conn.execute("DROP TABLE IF EXISTS alembic_version CASCADE;")
         logger.info("Dropped alembic_version table.")
 
-        # 2. Drop existing outdated 'settings' table so FastAPI/SQLAlchemy recreates it with ALL columns
-        await conn.execute("DROP TABLE IF EXISTS settings CASCADE;")
+        # 2. Drop existing outdated app tables so FastAPI/SQLAlchemy recreates them
+        #    with ALL current columns. CASCADE handles FK dependency order.
+        for table in ("messages", "conversations", "users", "settings"):
+            await conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
         logger.info(
-            "Dropped old settings table. FastAPI will recreate it clean with all columns."
+            "Dropped old app tables (messages, conversations, users, settings). "
+            "FastAPI will recreate them clean with all columns."
         )
 
         await conn.close()
