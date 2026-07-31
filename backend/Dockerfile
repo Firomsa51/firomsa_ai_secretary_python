@@ -40,7 +40,12 @@ ENV PORT=8000 \
 EXPOSE ${PORT}
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-# 1. Runs reset_db.py to clear stuck 'alembic_version' (phase4) table safely
-# 2. Applies database migrations (alembic upgrade head)
-# 3. Starts FastAPI app via Uvicorn
-CMD ["sh", "-c", "python3 reset_db.py || true; alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# 1. Applies database migrations (alembic upgrade head)
+# 2. Starts FastAPI app via Uvicorn
+#
+# NOTE: reset_db.py is intentionally NOT run here anymore. It drops all app
+# tables (including the Telegram session stored in `settings`) on every
+# container start/restart, which wiped out authentication after each deploy.
+# If a one-off schema fix is ever needed again, run it manually from the
+# Render Shell tab — never wire it into CMD.
+CMD ["sh", "-c", "alembic upgrade head || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
