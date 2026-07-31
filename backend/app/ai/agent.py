@@ -1,133 +1,34 @@
-"""
-AI Agent — orchestrates the provider, prompts, and memory service
-to produce a contextual reply or analysis for a given conversation.
-"""
-
-import json
-import logging
-from dataclasses import dataclass, field
-
-from app.ai.memory import MemoryService
-from app.ai.prompts import (
-    build_categorise_messages,
-    build_draft_reply_messages,
-    format_history,
-)
-from app.ai.providers import AIProvider
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ConversationContext:
-    user_id: int
-    sender_name: str
-    latest_message: str
-    history: list[dict[str, str]]
-
-
-@dataclass
-class AgentResult:
-    draft_reply: str | None
-    category: str | None
-    priority: str | None
-    summary: str | None
-    # ── Phase 4 additions ─────────────────────────────────────────────────────
-    confidence: float | None = None
-    intent: str | None = None
-    sentiment: str | None = None
-    reasoning: str | None = None
-    requires_human_review: bool = False
-    extracted_memories: list[dict[str, str]] = field(default_factory=list)
-
-
-class FiromsaAgent:
+@staticmethod
+def _parse_classification(raw: str) -> dict:
     """
-    The core AI agent.
-
-    Phase 1: Foundation skeleton.
-    Phase 2: Full integration — persist results, draft replies.
-    Phase 4: Categorisation call extended to also return confidence/intent/
-             sentiment/reasoning/requires_human_review, and to extract
-             durable long-term facts (persisted here via MemoryService —
-             no separate AI call, no separate extraction pipeline).
+    Parse JSON even if the LLM wraps it with explanations or markdown.
     """
+    import json
+    import logging
 
-    def __init__(self, provider: AIProvider, memory_service: MemoryService) -> None:
-        self._provider = provider
-        self._memory = memory_service
+    logger = logging.getLogger(__name__)
 
-    async def process(self, ctx: ConversationContext) -> AgentResult:
-        logger.info(
-            "Agent processing message from %s for user_id=%s",
-            ctx.sender_name,
-            ctx.user_id,
-        )
+    if not raw:
+        return {}
 
-        memories_text = await self._memory.retrieve_formatted(ctx.user_id)
+    try:
+        cleaned = raw.strip()
 
-        history_text = format_history(ctx.history)
-        reply_messages = build_draft_reply_messages(
-            history=history_text,
-            sender=ctx.sender_name,
-            latest_message=ctx.latest_message,
-            memories=memories_text,
-        )
-        draft_reply = await self._provider.chat(reply_messages, temperature=0.6)
-        logger.debug("Draft reply generated (len=%d).", len(draft_reply))
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json", 1)[1]
 
-        cat_messages = build_categorise_messages(history_text)
-        raw_classification = await self._provider.chat(cat_messages, temperature=0.1)
-        data = self._parse_classification(raw_classification)
+        if "```" in cleaned:
+            cleaned = cleaned.split("```", 1)[0]
 
-        confidence = self._safe_float(data.get("confidence"))
-        extracted_memories = self._sanitise_memories(data.get("extracted_memories"))
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
 
-        for mem in extracted_memories:
-            await self._memory.store(ctx.user_id, mem["key"], mem["value"])
+        if start != -1 and end != -1:
+            cleaned = cleaned[start:end + 1]
 
-        return AgentResult(
-            draft_reply=draft_reply,
-            category=data.get("category"),
-            priority=data.get("priority"),
-            summary=data.get("summary"),
-            confidence=confidence,
-            intent=data.get("intent"),
-            sentiment=data.get("sentiment"),
-            reasoning=data.get("reasoning"),
-            requires_human_review=bool(data.get("requires_human_review", False)),
-            extracted_memories=extracted_memories,
-        )
+        return json.loads(cleaned)
 
-    @staticmethod
-    def _parse_classification(raw: str) -> dict:
-        try:
-            cleaned = raw.strip().removeprefix("```json").removesuffix("```").strip()
-            data = json.loads(cleaned)
-            return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, AttributeError) as exc:
-            logger.warning("Failed to parse classification JSON: %s | raw=%r", exc, raw[:200])
-            return {}
-
-    @staticmethod
-    def _safe_float(value) -> float | None:
-        if value is None:
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _sanitise_memories(raw) -> list[dict[str, str]]:
-        if not isinstance(raw, list):
-            return []
-        cleaned: list[dict[str, str]] = []
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            key = item.get("key")
-            value = item.get("value")
-            if key and value:
-                cleaned.append({"key": str(key), "value": str(value)})
-        return cleaned
+    except Exception as exc:
+        logger.exception("Failed to parse classification JSON")
+        logger.error("RAW RESPONSE:\n%s", raw)
+        return {}
