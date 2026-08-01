@@ -102,17 +102,15 @@ class FiromsaAgent:
     @staticmethod
     def _parse_classification(raw: str) -> dict:
         """
-        Parse JSON even if the LLM wraps it with explanations or markdown.
+        Parse JSON even if the LLM wraps it with explanations or markdown
+        code fences (``` or ```json). Locating the outermost { ... } braces
+        is more robust than trying to strip fence markers by string prefix,
+        since the LLM doesn't always tag the fence with "json".
         """
         if not raw:
             return {}
         try:
             cleaned = raw.strip()
-
-            if "```json" in cleaned:
-                cleaned = cleaned.split("```json", 1)[1]
-            if "```" in cleaned:
-                cleaned = cleaned.split("```", 1)[0]
 
             start = cleaned.find("{")
             end = cleaned.rfind("}")
