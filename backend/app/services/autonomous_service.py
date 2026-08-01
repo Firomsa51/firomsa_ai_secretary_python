@@ -102,10 +102,20 @@ async def evaluate_and_maybe_autoreply(
         reasons_failed.append("conversation is locked")
     if message.requires_human_review:
         reasons_failed.append("AI flagged this message as requiring human review")
-    if message.ai_confidence is None or message.ai_confidence < settings.confidence_threshold:
+
+    # NOTE: the reply text is now a fixed template (not AI-generated), so a
+    # missing/low confidence score no longer implies an unsafe or low
+    # quality reply — it usually just means the classifier call failed to
+    # return valid JSON (e.g. a transient LLM formatting issue). We only
+    # gate on confidence when we actually have a numeric score below the
+    # configured threshold; a None score no longer blocks auto-reply on
+    # its own. Safety is still enforced independently via
+    # requires_human_review and blocked_keywords/categories below.
+    if message.ai_confidence is not None and message.ai_confidence < settings.confidence_threshold:
         reasons_failed.append(
             f"confidence {message.ai_confidence!r} below threshold {settings.confidence_threshold}"
         )
+
     hit = _blocked_keyword_hit(message.content, settings.blocked_keywords)
     if hit:
         reasons_failed.append(f"blocked keyword matched: {hit!r}")
