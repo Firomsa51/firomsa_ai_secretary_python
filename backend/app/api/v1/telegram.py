@@ -4,6 +4,11 @@ Telegram authentication and status endpoints.
 POST /api/v1/telegram/auth/request  — send OTP to phone
 POST /api/v1/telegram/auth/verify   — confirm OTP (+ optional 2FA password)
 GET  /api/v1/telegram/status        — connection + authorisation info
+
+TEMPORARY:
+GET  /api/v1/telegram/debug/session-string — exports the current session
+     string so it can be copied into the TELEGRAM_SESSION env var on Render.
+     REMOVE THIS ENDPOINT after copying the value once — it is a secret.
 """
 
 import logging
@@ -14,7 +19,7 @@ from pydantic import BaseModel, Field
 from app.dependencies import DBSession
 from app.telegram.auth import telegram_auth_service
 from app.telegram.client import telegram_client
-from app.telegram.session_store import save_session_string
+from app.telegram.session_store import load_session_string, save_session_string
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +62,10 @@ class TelegramStatusResponse(BaseModel):
     username: str | None
     telegram_user_id: int | None
     first_name: str | None
+
+
+class DebugSessionStringResponse(BaseModel):
+    session_string: str | None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -181,3 +190,26 @@ async def telegram_status() -> TelegramStatusResponse:
         telegram_user_id=telegram_user_id,
         first_name=first_name,
     )
+
+
+@router.get(
+    "/debug/session-string",
+    response_model=DebugSessionStringResponse,
+    status_code=status.HTTP_200_OK,
+    summary="[TEMPORARY] Export current session string for backup",
+)
+async def debug_get_session_string(db: DBSession) -> DebugSessionStringResponse:
+    """
+    TEMPORARY DEBUG ENDPOINT.
+
+    Returns the Telegram StringSession currently stored in the database so it
+    can be copied into the TELEGRAM_SESSION environment variable on Render.
+    This makes the session survive database resets/migrations, not just
+    container restarts.
+
+    SECURITY: This session string grants full access to the Telegram account.
+    Remove this endpoint (and this route) immediately after copying the value
+    once — do not leave it deployed.
+    """
+    session = await load_session_string(db)
+    return DebugSessionStringResponse(session_string=session)
