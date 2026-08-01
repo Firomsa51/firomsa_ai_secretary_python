@@ -3,20 +3,21 @@ def _build_history(
     exclude_message_id: int,
 ) -> list[dict[str, str]]:
     """
-    Build only the recent conversation history.
+    Build a compact history for the AI.
 
-    Sending the full Telegram history to the LLM quickly exhausts free
-    token limits. We therefore keep only the latest few exchanges.
+    Only the most recent messages are sent to the model in order to
+    reduce token usage and avoid hitting free-tier limits.
     """
 
     history: list[dict[str, str]] = []
 
     messages = sorted(
         conversation.messages,
-        key=lambda m: m.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda m: m.timestamp,
     )
 
-    recent_messages = messages[-10:]   # keep only last 10 messages
+    # Keep only the last 10 messages
+    recent_messages = messages[-10:]
 
     for m in recent_messages:
         if m.id == exclude_message_id:
@@ -25,7 +26,7 @@ def _build_history(
         history.append(
             {
                 "sender": m.sender,
-                "content": (m.content or "")[:500],   # max 500 chars
+                "content": (m.content or "")[:500],
             }
         )
 
