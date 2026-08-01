@@ -16,8 +16,16 @@ async def get_or_create_settings(db: AsyncSession) -> Settings:
     """
     Return the singleton Settings row, creating it with defaults if it
     does not exist yet.
+
+    IMPORTANT: ordered by id ascending and limited to 1 so that if more
+    than one row ever exists in the table (e.g. left over from earlier
+    testing / resets), we always deterministically return the SAME row
+    every time instead of whichever row the database happens to return
+    first for an unfiltered/unordered SELECT. Without this, PATCH
+    /settings/ could update one row while the message handler reads a
+    different one, making settings changes appear to silently not apply.
     """
-    row = await db.scalar(select(Settings))
+    row = await db.scalar(select(Settings).order_by(Settings.id.asc()).limit(1))
     if row is None:
         row = Settings()
         db.add(row)
