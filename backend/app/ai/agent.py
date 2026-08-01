@@ -76,7 +76,7 @@ class FiromsaAgent:
         draft_reply = await self._provider.chat(reply_messages, temperature=0.6)
         logger.debug("Draft reply generated (len=%d).", len(draft_reply))
 
-        cat_messages = build_categorise_messages(history_text)
+        cat_messages = build_categorise_messages(history_text, ctx.latest_message)
         raw_classification = await self._provider.chat(cat_messages, temperature=0.1)
         data = self._parse_classification(raw_classification)
 
