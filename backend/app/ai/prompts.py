@@ -55,6 +55,27 @@ Rules:
   specific clarifying question instead of guessing.
 """
 
+
+# ── Standard away/welcome autoresponder ────────────────────────────────────
+# Used as the fixed draft_reply text for every incoming message when the
+# owner is offline, regardless of message length or content (a single "hi"
+# gets the same professional welcome as a long inquiry). The AI classifier
+# is still used to gate safety (confidence / requires_human_review /
+# blocked_keywords) — it just no longer generates the reply text itself,
+# which removes the variability that caused short messages to go unanswered.
+OWNER_AWAY_MESSAGE = """\
+Hello, and thank you for reaching out.
+
+I'm Firomsa Ahmed, an AI Engineer and Full Stack Developer. I build custom \
+websites, AI agents, voice AI systems, and SaaS platforms for businesses \
+and individuals.
+
+I'm currently offline. If you have a specific question or project in \
+mind, please leave the details here and I will get back to you as soon \
+as I'm available. You can also reach me directly at +251 94 600 4640.
+
+Thank you for your patience."""
+
 # Phase 4: extended to also return confidence/intent/sentiment/reasoning,
 # a human-review safety flag, and any durable facts worth remembering —
 # all in the single categorisation call that already existed in Phase 1,
