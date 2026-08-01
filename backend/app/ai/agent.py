@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 
 from app.ai.memory import MemoryService
 from app.ai.prompts import (
+    OWNER_AWAY_MESSAGE,
     build_categorise_messages,
-    build_draft_reply_messages,
     format_history,
 )
 from app.ai.providers import AIProvider
@@ -64,17 +64,15 @@ class FiromsaAgent:
             ctx.user_id,
         )
 
-        memories_text = await self._memory.retrieve_formatted(ctx.user_id)
-
         history_text = format_history(ctx.history)
-        reply_messages = build_draft_reply_messages(
-            history=history_text,
-            sender=ctx.sender_name,
-            latest_message=ctx.latest_message,
-            memories=memories_text,
-        )
-        draft_reply = await self._provider.chat(reply_messages, temperature=0.6)
-        logger.debug("Draft reply generated (len=%d).", len(draft_reply))
+
+        # Fixed professional away/welcome message — used for every incoming
+        # message regardless of length or content, instead of an LLM-drafted
+        # reply. This guarantees a consistent, reliable response even for
+        # short greetings ("hi", "hello") that previously produced no reply
+        # at all due to LLM variability.
+        draft_reply = OWNER_AWAY_MESSAGE
+        logger.debug("Using fixed away-message template (len=%d).", len(draft_reply))
 
         cat_messages = build_categorise_messages(history_text, ctx.latest_message)
         raw_classification = await self._provider.chat(cat_messages, temperature=0.1)
