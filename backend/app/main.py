@@ -21,7 +21,8 @@ _TELEGRAM_KEEPALIVE_INTERVAL_SECONDS = 180  # 3 minutes
 
 async def _telegram_keepalive_loop() -> None:
     """
-    Periodically touches the live Telegram MTProto connection.
+    Periodically touches the live Telegram MTProto connection, and forces
+    a full reconnect if the ping fails.
 
     HTTP uptime pings (e.g. UptimeRobot) only keep the web process itself
     from spinning down — they do nothing for the separate MTProto socket
@@ -30,20 +31,30 @@ async def _telegram_keepalive_loop() -> None:
     without Telethon's high-level `is_connected` flag ever flipping to
     False, which means new-message events silently stop arriving even
     though /telegram/status still reports connected=true. Calling
-    get_me() periodically forces real traffic on that socket, which
-    either keeps it alive or triggers Telethon's own reconnect logic if
-    it had already died.
+    get_me() periodically forces real traffic on that socket. If that
+    call fails, the socket is genuinely dead, so we actively tear down
+    and rebuild the client with the same session instead of just logging
+    the failure and leaving a dead connection in place.
     """
     while True:
+        await asyncio.sleep(_TELEGRAM_KEEPALIVE_INTERVAL_SECONDS)
+        if not telegram_client.is_connected:
+            continue
         try:
-            await asyncio.sleep(_TELEGRAM_KEEPALIVE_INTERVAL_SECONDS)
-            if telegram_client.is_connected:
-                await telegram_client.client.get_me()
-                logger.debug("Telegram keepalive ping OK.")
+            await telegram_client.client.get_me()
+            logger.debug("Telegram keepalive ping OK.")
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Telegram keepalive ping failed: %s", exc)
+            logger.warning(
+                "Telegram keepalive ping failed (%s) — forcing full reconnect.", exc
+            )
+            try:
+                session_string = telegram_client.get_session_string()
+                await telegram_client.reconnect_with_session(session_string)
+                logger.info("Telegram client force-reconnected after keepalive failure.")
+            except Exception:  # noqa: BLE001
+                logger.exception("Telegram force-reconnect after keepalive failure also failed.")
 
 
 @contextlib.asynccontextmanager
