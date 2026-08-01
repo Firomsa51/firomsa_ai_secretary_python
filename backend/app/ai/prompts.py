@@ -64,6 +64,10 @@ Only include entries in "extracted_memories" for durable, long-term facts
 meeting preferences, important commitments). Never include temporary
 chat details, greetings, or one-off statements with no future relevance.
 Return an empty array if there is nothing worth remembering.
+
+Always classify based on the "Latest message" below, even if there is no
+prior conversation history — a single first message is enough context to
+classify. Never refuse or ask for more history; always return the JSON.
 """
 
 
@@ -73,7 +77,10 @@ _DRAFT_REPLY_TEMPLATE = Template(
 )
 
 _CATEGORISE_TEMPLATE = Template(
-    "Conversation history:\n$history\n\nClassify this conversation."
+    "Conversation history so far (may be empty if this is the first message):\n"
+    "$history\n\n"
+    "Latest message to classify:\n$latest_message\n\n"
+    "Classify this conversation based on the latest message above."
 )
 
 _MEMORY_INJECT_TEMPLATE = Template(
@@ -104,10 +111,16 @@ def build_draft_reply_messages(
     ]
 
 
-def build_categorise_messages(history: str) -> list[dict[str, str]]:
+def build_categorise_messages(history: str, latest_message: str) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": SYSTEM_CATEGORISER},
-        {"role": "user", "content": _CATEGORISE_TEMPLATE.substitute(history=history)},
+        {
+            "role": "user",
+            "content": _CATEGORISE_TEMPLATE.substitute(
+                history=history or "(no prior messages)",
+                latest_message=latest_message,
+            ),
+        },
     ]
 
 
