@@ -75,8 +75,26 @@ class FiromsaAgent:
         logger.debug("Using fixed away-message template (len=%d).", len(draft_reply))
 
         cat_messages = build_categorise_messages(history_text, ctx.latest_message)
-        raw_classification = await self._provider.chat(cat_messages, temperature=0.1)
-        data = self._parse_classification(raw_classification)
+
+        try:
+            raw_classification = await self._provider.chat(cat_messages, temperature=0.1)
+            data = self._parse_classification(raw_classification)
+            if not data:
+                # Provider responded but gave unusable output — still treat
+                # this as "AI unavailable" and fall back to local rules.
+                data = self._local_fallback_classification(ctx.latest_message)
+        except Exception:  # noqa: BLE001
+            # Every provider in the fallback chain failed (e.g. all
+            # free-tier quotas exhausted for the day). Don't let the whole
+            # message fail — use a conservative local classification so
+            # the fixed away-message can still be sent, with basic local
+            # safety checks standing in for the AI's judgement.
+            logger.warning(
+                "All AI providers unavailable — using local fallback classification "
+                "for message from %s.",
+                ctx.sender_name,
+            )
+            data = self._local_fallback_classification(ctx.latest_message)
 
         confidence = self._safe_float(data.get("confidence"))
         extracted_memories = self._sanitise_memories(data.get("extracted_memories"))
@@ -96,6 +114,38 @@ class FiromsaAgent:
             requires_human_review=bool(data.get("requires_human_review", False)),
             extracted_memories=extracted_memories,
         )
+
+    @staticmethod
+    def _local_fallback_classification(latest_message: str) -> dict:
+        """
+        Conservative, non-AI classification used only when every configured
+        AI provider has failed (e.g. all free-tier quotas exhausted for the
+        day). This keeps the bot functional — the fixed away-message can
+        still be sent — while erring on the side of caution: any message
+        that looks sensitive is flagged for human review instead of being
+        auto-sent blind.
+        """
+        lowered = (latest_message or "").lower()
+
+        sensitive_keywords = (
+            "password", "otp", "one-time", "login code", "verification code",
+            "bank", "account number", "card number", "cvv", "pin",
+            "transfer", "payment", "invoice", "contract", "legal",
+            "urgent", "emergency", "lawsuit", "medical", "diagnosis",
+        )
+        requires_human_review = any(kw in lowered for kw in sensitive_keywords)
+
+        return {
+            "category": "other",
+            "priority": "high" if requires_human_review else "normal",
+            "summary": "Classified locally — AI providers were unavailable.",
+            "confidence": 0.9,
+            "intent": "unknown",
+            "sentiment": "neutral",
+            "reasoning": "Local fallback classification (all AI providers failed).",
+            "requires_human_review": requires_human_review,
+            "extracted_memories": [],
+        }
 
     @staticmethod
     def _parse_classification(raw: str) -> dict:
