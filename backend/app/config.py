@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # ── AI Providers ──────────────────────────────────────────────────────────
     openai_api_key: str | None = Field(
         default=None,
-        description="OpenAI API key — optional if using Groq",
+        description="OpenAI API key — optional",
     )
     openai_base_url: str = Field(
         default="https://api.openai.com/v1",
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
 
     groq_api_key: str | None = Field(
         default=None,
-        description="Groq API key — optional if using OpenAI",
+        description="Groq API key — optional",
     )
     groq_base_url: str = Field(
         default="https://api.groq.com/openai/v1",
@@ -86,10 +86,33 @@ class Settings(BaseSettings):
         description="Default Groq model identifier",
     )
 
-    # Active AI provider: "openai" | "groq"
-    ai_provider: Literal["openai", "groq"] = Field(
-        default="openai",
-        description="Which AI provider the agent will use",
+    gemini_api_key: str | None = Field(
+        default=None,
+        description="Google Gemini API key — optional. Get one free at aistudio.google.com",
+    )
+    gemini_base_url: str = Field(
+        default="https://generativelanguage.googleapis.com/v1beta/openai/",
+        description="Gemini's OpenAI-compatible base URL",
+    )
+    gemini_model: str = Field(
+        default="gemini-2.0-flash",
+        description="Default Gemini model identifier",
+    )
+
+    # Which single provider to use if fallback is disabled/only one key is set.
+    # "openai" | "groq" | "gemini"
+    ai_provider: Literal["openai", "groq", "gemini"] = Field(
+        default="groq",
+        description="Preferred/primary AI provider the agent will use first",
+    )
+
+    # Comma-separated fallback order, e.g. "groq,gemini,openai". The agent
+    # tries each provider in this order and automatically moves to the next
+    # one if a call fails (rate limit, quota exceeded, transient error,
+    # etc.) — only providers whose API key is actually configured are used.
+    ai_provider_fallback_order: str = Field(
+        default="groq,gemini,openai",
+        description="Comma-separated provider fallback order",
     )
 
     @field_validator("database_url")
