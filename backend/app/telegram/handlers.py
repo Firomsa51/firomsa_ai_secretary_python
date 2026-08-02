@@ -45,7 +45,13 @@ def register_handlers(client: TelegramClient) -> None:
 
     @client.on(events.MessageRead)
     async def on_message_read(event: events.MessageRead.Event) -> None:
-        logger.debug("Messages read up to id=%s in peer=%s", event.max_id, event.peer)
+        # NOTE: events.MessageRead.Event does not have a `.peer` attribute
+        # (that caused an unhandled exception on every read receipt). The
+        # chat identifier is available via `.chat_id` / `.original_update`
+        # instead; we only log it for debugging, so failing to resolve it
+        # is not fatal.
+        chat_id = getattr(event, "chat_id", None)
+        logger.debug("Messages read up to id=%s in chat_id=%s", event.max_id, chat_id)
 
     logger.info("Telegram event handlers registered.")
 
